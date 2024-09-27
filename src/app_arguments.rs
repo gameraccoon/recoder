@@ -3,7 +3,9 @@
 
 #[derive(Default, Clone)]
 pub struct AppArguments {
-    pub path_to_config: Option<String>,
+    pub templates_path: Option<String>,
+    pub definitions_path: Option<String>,
+    pub results_root_path: Option<String>,
 }
 
 pub struct ArgumentsParsingResult {
@@ -15,28 +17,52 @@ pub struct ArgumentsParsingResult {
 struct ArgumentDefinition {
     name: &'static str,
     syntax: &'static str,
+    shorthand: Option<&'static str>,
     description: &'static str,
     number_of_args: usize,
+    is_required: bool,
 }
 
 const SUPPORTED_ARGS: &[ArgumentDefinition] = &[
     ArgumentDefinition {
         name: "--help",
         syntax: "--help",
+        shorthand: Some("-h"),
         description: "Show this help",
         number_of_args: 0,
+        is_required: false,
     },
     ArgumentDefinition {
         name: "--version",
         syntax: "--version",
+        shorthand: Some("-v"),
         description: "Show the application version",
         number_of_args: 0,
+        is_required: false,
     },
     ArgumentDefinition {
-        name: "--config",
-        syntax: "--config <path>",
-        description: "Set custom path to the config file",
+        name: "--templates-path",
+        syntax: "--templates-path <path>",
+        shorthand: Some("-t"),
+        description: "Set path to the templates directory",
         number_of_args: 1,
+        is_required: true,
+    },
+    ArgumentDefinition {
+        name: "--definitions-path",
+        syntax: "--definitions-path <path>",
+        shorthand: Some("-d"),
+        description: "Set path to the directory with definitions",
+        number_of_args: 1,
+        is_required: true,
+    },
+    ArgumentDefinition {
+        name: "--results-root-path",
+        syntax: "--results-root-path <path>",
+        shorthand: Some("-r"),
+        description: "Set root directory for results, default is the current directory",
+        number_of_args: 1,
+        is_required: false,
     },
 ];
 
@@ -67,16 +93,11 @@ impl ArgumentsParsingResult {
 }
 
 pub fn get_app_arguments() -> ArgumentsParsingResult {
-    let mut custom_config_path = None;
-
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() == 1 {
-        return ArgumentsParsingResult::error(std::format!(
-            "No arguments provided\n{}",
-            get_help_text(),
-        ));
-    }
+    let mut templates_path = None;
+    let mut definitions_path = None;
+    let mut results_root_path = None;
 
     let mut i: usize = 1;
     while i < args.len() {
@@ -86,6 +107,10 @@ pub fn get_app_arguments() -> ArgumentsParsingResult {
             SUPPORTED_ARGS
                 .iter()
                 .find(|supported_arg| supported_arg.name == arg)
+        } else if arg.starts_with("-") {
+            SUPPORTED_ARGS
+                .iter()
+                .find(|supported_arg| supported_arg.shorthand == Some(arg))
         } else {
             None
         };
@@ -104,24 +129,49 @@ pub fn get_app_arguments() -> ArgumentsParsingResult {
             ));
         };
 
-        if arg == "--help" {
+        if arg == "--help" || arg == "-h" {
             return ArgumentsParsingResult::message(get_help_text());
         }
-        if arg == "--version" {
+        if arg == "--version" || arg == "-v" {
             return ArgumentsParsingResult::message(env!("CARGO_PKG_VERSION").to_string());
-        }
-
-        if arg == "--config-path" {
-            if i + 1 < args.len() {
-                custom_config_path = Some(args[i + 1].clone());
-            }
+        } else if arg == "--templates-path" || arg == "-t" {
+            templates_path = Some(args[i + 1].clone());
+        } else if arg == "--definitions-path" || arg == "-d" {
+            definitions_path = Some(args[i + 1].clone());
+        } else if arg == "--results-root-path" || arg == "-r" {
+            results_root_path = Some(args[i + 1].clone());
         }
 
         i += 1 + found_arg.number_of_args;
     }
 
+    let mut missing_args = Vec::new();
+    for supported_arg in SUPPORTED_ARGS {
+        if supported_arg.is_required {
+            let mut found = false;
+            for arg in &args {
+                if arg == supported_arg.name || arg == supported_arg.shorthand.unwrap_or("") {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                missing_args.push(supported_arg.name);
+            }
+        }
+    }
+
+    if missing_args.len() > 0 {
+        return ArgumentsParsingResult::error(format!(
+            "Missing required arguments: {}\nUse --help to see the list of supported arguments",
+            missing_args.join(", ")
+        ));
+    }
+
     ArgumentsParsingResult::parsed(AppArguments {
-        path_to_config: custom_config_path,
+        templates_path,
+        definitions_path,
+        results_root_path,
     })
 }
 
